@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import Reed_Solomon as rs
 import random
+import math
 # Global Quantization Parameters
 QU_BASE = 10
 QU_GAMMA = 2
@@ -37,9 +38,9 @@ def noisy_channel(matrix, manipulated, missing):
     columns_to_replace_with_nan = columns_to_modify[manipulated:]
     for col in columns_to_replace_with_random:
         for row in range(rows):
-            modified_matrix[row, col] = random.randint(0, PRIME - 1)
+            modified_matrix[row, col] = random.randrange(PRIME)
     for col in columns_to_replace_with_nan:
-        modified_matrix[:, col] = np.nan
+        modified_matrix[:, col] = None
     return modified_matrix
 
 def shares_of_vector(state_vector):
@@ -47,9 +48,7 @@ def shares_of_vector(state_vector):
     share_matrix_noisy = np.zeros((len(state_vector), NUM_SHARES))
     for index, state in enumerate(state_vector):
         share_matrix[index, :] = (rs.shamir_share(state))
-    share_matrix_noisy = noisy_channel(share_matrix, 1, 0)
-    print(share_matrix)
-    print(share_matrix_noisy)
+    share_matrix_noisy = noisy_channel(share_matrix, 1, 1)
     return share_matrix_noisy
 
 # System parameters
@@ -87,6 +86,7 @@ x_shares = shares_of_vector(x_qu[:, 0])
 for k in range(num_steps - 1):
     for share in range(x_shares.shape[1]): 
         u_shares[share] = (-K_qu @ x_shares[:, share]) % PRIME
+    u_shares = [None if isinstance(x, (float, np.floating)) and math.isnan(x) else x for x in u_shares]
     u_re[k], error_indices = rs.shamir_robust_reconstruct(u_shares)
     u_de_re[k] = decode_quantized_value(decode_quantized_value(u_re[k]))
     u[k] = -K @ x[:, k]

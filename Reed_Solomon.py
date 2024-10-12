@@ -197,7 +197,7 @@ N = 5 # total number of shares
 T = 1 #
 R = T+K # 
 assert(R <= N)
-MAX_MISSING = 0 # allowed missing shares
+MAX_MISSING = 1 # allowed missing shares
 MAX_MANIPULATED = 1 # allowed manipulated shares
 assert(R + MAX_MISSING + 2*MAX_MANIPULATED <= N)
 POINTS = [ p for p in range(1, N+1) ]
@@ -228,7 +228,7 @@ def shares_noissy_channel(original_shares):
     missing, manipulated = indices[:MAX_MISSING], indices[MAX_MISSING:]
     for i in missing:     received_shares[i] = None
     for i in manipulated: received_shares[i] = random.randrange(PRIME)
-    # print("Received shares: %s" % received_shares)
+    print("Received shares: %s" % received_shares)
     return (received_shares, manipulated)
 
 # original_shares = shamir_share(10)
