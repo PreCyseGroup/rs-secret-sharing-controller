@@ -3,7 +3,7 @@ import random
 import numpy as np
 
 class RSSecretSharing:
-    def __init__(self, PRIME, K=1, N=5, T=1, MAX_MISSING=1, MAX_MANIPULATED=1):
+    def __init__(self, PRIME, K=1, N=5, T=1, MAX_MISSING=1, MAX_MANIPULATED=1, RAN_SEED=None):
         self.PRIME = PRIME  # Base field arithmetic (prime number)
         self.K = K  # Threshold for reconstruction
         self.N = N  # Total number of shares
@@ -12,6 +12,7 @@ class RSSecretSharing:
         self.MAX_MISSING = MAX_MISSING  # Maximum missing shares allowed
         self.MAX_MANIPULATED = MAX_MANIPULATED  # Maximum manipulated shares allowed
         self.POINTS = [p for p in range(1, N + 1)]
+        self.RAN_SEED = RAN_SEED
         assert self.R + self.MAX_MISSING + 2 * self.MAX_MANIPULATED <= N
 
     def base_egcd(self, a, b):
@@ -152,10 +153,12 @@ class RSSecretSharing:
         error_indices = [i for i, v in enumerate(self.poly_eval(error_locator, p) for p in self.POINTS) if v == 0]
         return secret, error_indices
 
-    def shares_noissy_channel(self, shares): 
+    def shares_noissy_channel(self, shares, seed=None): 
         rows, cols = shares.shape
         if self.MAX_MANIPULATED + self.MAX_MISSING > cols:
             raise ValueError("The total of manipulated and missing cannot be greater than the number of columns in the matrix.")
+        if seed is not None:
+            random.seed(seed)
         modified_matrix = shares.copy()
         columns_to_modify = random.sample(range(cols), self.MAX_MANIPULATED + self.MAX_MISSING)
         columns_to_replace_with_random = columns_to_modify[:self.MAX_MANIPULATED]
@@ -172,5 +175,5 @@ class RSSecretSharing:
         share_matrix_noisy = np.zeros((len(vector), self.N))
         for index, state in enumerate(vector):
             share_matrix[index, :] = (self.shamir_share(state))
-        share_matrix_noisy = self.shares_noissy_channel(share_matrix)
+        share_matrix_noisy = self.shares_noissy_channel(share_matrix, self.RAN_SEED)
         return share_matrix_noisy
