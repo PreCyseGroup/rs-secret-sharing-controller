@@ -154,21 +154,59 @@ class RSSecretSharing:
         return secret, error_indices
 
     def shares_noissy_channel(self, shares, seed=None): 
-        rows, cols = shares.shape
-        if self.MAX_MANIPULATED + self.MAX_MISSING > cols:
-            raise ValueError("The total of manipulated and missing cannot be greater than the number of columns in the matrix.")
+        if isinstance(shares,np.ndarray):
+            is_array=True
+            if shares.ndim==1:
+                shares=shares.reshape(1,-1)
+            rows,cols=shares.shape
+        elif isinstance(shares,list):
+            is_array=False
+            if all(isinstance(elem,list) for elem in shares):
+                rows=len(shares)
+                cols=len(shares[0])
+            else:
+                shares=[shares]
+                rows=1
+                cols=len(shares[0])
+        else:
+            raise TypeError("Unsupported data type for shares")
+        if self.MAX_MANIPULATED+self.MAX_MISSING>cols:
+            raise ValueError("The total of manipulated and missing cannot be greater than the number of columns.")
         if seed is not None:
+            np.random.seed(seed)
             random.seed(seed)
-        modified_matrix = shares.copy()
-        columns_to_modify = random.sample(range(cols), self.MAX_MANIPULATED + self.MAX_MISSING)
-        columns_to_replace_with_random = columns_to_modify[:self.MAX_MANIPULATED]
-        columns_to_replace_with_nan = columns_to_modify[self.MAX_MANIPULATED:]
-        for col in columns_to_replace_with_random:
-            for row in range(rows):
-                modified_matrix[row, col] = random.randrange(self.PRIME)
-        for col in columns_to_replace_with_nan:
-            modified_matrix[:, col] = None
-        return modified_matrix
+        else:
+            np.random.seed()
+            random.seed()
+        if is_array:
+            modified_matrix=shares.copy()
+            if modified_matrix.dtype!=object:
+                modified_matrix=modified_matrix.astype(object)
+        else:
+            modified_matrix=[row.copy() for row in shares]
+        columns_to_modify=random.sample(range(cols),self.MAX_MANIPULATED+self.MAX_MISSING)
+        columns_to_replace_with_random=columns_to_modify[:self.MAX_MANIPULATED]
+        columns_to_replace_with_nan=columns_to_modify[self.MAX_MANIPULATED:]
+        if is_array:
+            for col in columns_to_replace_with_random:
+                modified_matrix[:,col]=np.random.randint(0,self.PRIME,size=rows)
+        else:
+            for col in columns_to_replace_with_random:
+                for row in range(rows):
+                    modified_matrix[row][col]=random.randrange(self.PRIME)
+        if is_array:
+            modified_matrix[:,columns_to_replace_with_nan]=float('nan')
+        else:
+            for col in columns_to_replace_with_nan:
+                for row in range(rows):
+                    modified_matrix[row][col]=float('nan')
+        if rows==1:
+            if is_array:
+                return modified_matrix[0]
+            else:
+                return modified_matrix[0]
+        else:
+            return modified_matrix
     
     def shares_of_vector(self, vector):
         share_matrix = np.zeros((len(vector), self.N))
