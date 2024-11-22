@@ -72,8 +72,6 @@ control_input_x = []
 control_input_y = []
 control_input_x_rscode = []
 control_input_y_rscode = []
-u_x_shares = [0] * NUM_SHARES
-u_y_shares = [0] * NUM_SHARES
 control_input_x_rscode = []
 control_input_y_rscode = []
 
@@ -124,28 +122,38 @@ for k in range(num_time_steps):
     error_shifted_y_shares = rscode.shamir_share(error_shifted_y_qu)
     error_shifted_x_shares = rscode.shares_noissy_channel(error_shifted_x_shares, SEED)
     error_shifted_y_shares = rscode.shares_noissy_channel(error_shifted_y_shares, SEED)
-    # Compute control inputs using PI controller
-    u_x = integral_gain * integral_state_x[k] + proportional_gain * error_shifted_x
-    u_y = integral_gain * integral_state_y[k] + proportional_gain * error_shifted_y
-    control_input_x.append(u_x)
-    control_input_y.append(u_y)
-
+    u_x_shares = np.zeros(NUM_SHARES)
+    u_y_shares = np.zeros(NUM_SHARES)
+    integral_state_x_shares_new = np.zeros(NUM_SHARES)
+    integral_state_y_shares_new = np.zeros(NUM_SHARES)
+    proportional_gain_qu = custom_quantize(proportional_gain)
+    integral_gain_qu = custom_quantize(integral_gain)
+    sampling_time_qu = custom_quantize(sampling_time)
     # Compute the Control Inputs Using the RSCode
-    for share in range(NUM_SHARES): 
-        u_x_shares[share] = custom_quantize(integral_gain) * integral_state_x_shares[share] + custom_quantize(proportional_gain) * error_shifted_x_shares[share]
-        u_y_shares[share] = custom_quantize(integral_gain) * integral_state_y_shares[share] + custom_quantize(proportional_gain) * error_shifted_y_shares[share]
+    for share in range(NUM_SHARES):
+        integral_state_x_shares_new[share] = (integral_state_x_shares[share] + sampling_time_qu * error_shifted_x_shares[share]) % PRIME
+        integral_state_y_shares_new[share] = (integral_state_y_shares[share] + sampling_time_qu * error_shifted_y_shares[share]) % PRIME
+
+        u_x_shares[share] = (integral_gain_qu * integral_state_x_shares[share] + proportional_gain_qu * error_shifted_x_shares[share]) % PRIME
+        u_y_shares[share] = (integral_gain_qu * integral_state_y_shares[share] + proportional_gain_qu * error_shifted_y_shares[share]) % PRIME
+
     u_x_shares = [None if isinstance(x, (float, np.floating)) and math.isnan(x) else x for x in u_x_shares]
     u_y_shares = [None if isinstance(x, (float, np.floating)) and math.isnan(x) else x for x in u_y_shares]
+    integral_state_x_shares_new = [None if isinstance(x, (float, np.floating)) and math.isnan(x) else x for x in integral_state_x_shares_new]
+    integral_state_y_shares_new = [None if isinstance(x, (float, np.floating)) and math.isnan(x) else x for x in integral_state_y_shares_new]
+    
     # Reconstruct the Control Inputs
-    u_x_rscode, error_indices = rscode.shamir_robust_reconstruct(u_x_shares)
-    u_y_rscode, error_indices = rscode.shamir_robust_reconstruct(u_y_shares)
+    u_x_rscode, _ = rscode.shamir_robust_reconstruct(u_x_shares)
+    u_y_rscode, _ = rscode.shamir_robust_reconstruct(u_y_shares)
     u_x_rscode = decode_quantized_value(decode_quantized_value(u_x_rscode))
     u_y_rscode = decode_quantized_value(decode_quantized_value(u_y_rscode))
     control_input_x_rscode.append(u_x_rscode)
     control_input_y_rscode.append(u_y_rscode)
     # Update integral states
-    integral_state_x[k + 1] = integral_state_x[k] + sampling_time * error_shifted_x
-    integral_state_y[k + 1] = integral_state_y[k] + sampling_time * error_shifted_y
+    integral_state_x_re, _ = rscode.shamir_robust_reconstruct(integral_state_x_shares_new)
+    integral_state_y_re, _ = rscode.shamir_robust_reconstruct(integral_state_y_shares_new)
+    integral_state_x[k + 1] = decode_quantized_value(decode_quantized_value(integral_state_x_re))
+    integral_state_y[k + 1] = decode_quantized_value(decode_quantized_value(integral_state_y_re))
     integral_state_x_qu = custom_quantize(integral_state_x_rscode[k + 1])
     integral_state_y_qu = custom_quantize(integral_state_y_rscode[k + 1])
     integral_state_x_shares = rscode.shamir_share(integral_state_x_qu)
@@ -158,33 +166,22 @@ for k in range(num_time_steps):
         [np.cos(current_theta), np.sin(current_theta)],
         [-np.sin(current_theta) / lookahead_distance, np.cos(current_theta) / lookahead_distance]
     ])
-    control_vector = np.array([u_x, u_y])
     control_vector_rscode = np.array([u_x_rscode, u_y_rscode])
-    velocities = transformation_inverse @ control_vector
     velocities_rscode = transformation_inverse @ control_vector_rscode
-    linear_velocity = velocities[0]
-    angular_velocity = velocities[1]
     linear_velocity_rscode = velocities_rscode[0]
     angular_velocity_rscode = velocities_rscode[1]
 
     # Saturate velocities to robot's physical limits
     max_linear_velocity = wheel_radius * max_wheel_speed
     max_angular_velocity = 2 * max_wheel_speed * wheel_radius / wheel_base
-    linear_velocity = np.clip(linear_velocity, -max_linear_velocity, max_linear_velocity)
-    angular_velocity = np.clip(angular_velocity, -max_angular_velocity, max_angular_velocity)
     linear_velocity_rscode = np.clip(linear_velocity_rscode, -max_linear_velocity, max_linear_velocity)
     angular_velocity_rscode = np.clip(angular_velocity_rscode, -max_angular_velocity, max_angular_velocity)
-
-    # Update robot's state
-    # current_x += sampling_time * linear_velocity * np.cos(current_theta)
-    # current_y += sampling_time * linear_velocity * np.sin(current_theta)
-    # current_theta += sampling_time * angular_velocity
 
     current_x += sampling_time * linear_velocity_rscode * np.cos(current_theta)
     current_y += sampling_time * linear_velocity_rscode * np.sin(current_theta)
     current_theta += sampling_time * angular_velocity_rscode
 
-    print(angular_velocity, angular_velocity_rscode)
+    print(angular_velocity_rscode)
 
     # Wrap current_theta to [-π, π]
     current_theta = (current_theta + np.pi) % (2 * np.pi) - np.pi
