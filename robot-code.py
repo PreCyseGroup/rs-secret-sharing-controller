@@ -4,13 +4,13 @@ from RSSecretSharing import RSSecretSharing
 import math
 # Global Quantization Parameters
 QU_BASE = 2
-QU_GAMMA = 4
-QU_DELTA = 5
+QU_GAMMA = 100
+QU_DELTA = 10
 #Global Parameters / Sharing 
-PRIME = 2053
+PRIME = 18446744073709551557
 NUM_SHARES = 5
 T_POLY_DEGREE = 1 
-MAX_MISSING = 1
+MAX_MISSING = 0
 MAX_MANIPULATED = 1
 SEED = 3
 rscode = RSSecretSharing(PRIME, 1, NUM_SHARES, T_POLY_DEGREE, MAX_MISSING, MAX_MANIPULATED, SEED)
@@ -122,10 +122,10 @@ for k in range(num_time_steps):
     error_shifted_y_shares = rscode.shamir_share(error_shifted_y_qu)
     error_shifted_x_shares = rscode.shares_noissy_channel(error_shifted_x_shares, SEED)
     error_shifted_y_shares = rscode.shares_noissy_channel(error_shifted_y_shares, SEED)
-    u_x_shares = np.zeros(NUM_SHARES)
-    u_y_shares = np.zeros(NUM_SHARES)
-    integral_state_x_shares_new = np.zeros(NUM_SHARES)
-    integral_state_y_shares_new = np.zeros(NUM_SHARES)
+    u_x_shares = [0] * NUM_SHARES
+    u_y_shares = [0] * NUM_SHARES
+    integral_state_x_shares_new = [0] * NUM_SHARES
+    integral_state_y_shares_new = [0] * NUM_SHARES
     proportional_gain_qu = custom_quantize(proportional_gain)
     integral_gain_qu = custom_quantize(integral_gain)
     sampling_time_qu = custom_quantize(sampling_time)
@@ -143,7 +143,9 @@ for k in range(num_time_steps):
     integral_state_y_shares_new = [None if isinstance(x, (float, np.floating)) and math.isnan(x) else x for x in integral_state_y_shares_new]
     
     # Reconstruct the Control Inputs
+    u_x_shares = [int(x) for x in u_x_shares]
     u_x_rscode, _ = rscode.shamir_robust_reconstruct(u_x_shares)
+    u_y_shares = [int(x) for x in u_y_shares]
     u_y_rscode, _ = rscode.shamir_robust_reconstruct(u_y_shares)
     u_x_rscode = decode_quantized_value(decode_quantized_value(u_x_rscode))
     u_y_rscode = decode_quantized_value(decode_quantized_value(u_y_rscode))
@@ -158,8 +160,8 @@ for k in range(num_time_steps):
     integral_state_y_qu = custom_quantize(integral_state_y_rscode[k + 1])
     integral_state_x_shares = rscode.shamir_share(integral_state_x_qu)
     integral_state_y_shares = rscode.shamir_share(integral_state_y_qu)  
-    integral_state_x_shares = rscode.shares_noissy_channel(integral_state_x_shares, SEED)
-    integral_state_y_shares = rscode.shares_noissy_channel(integral_state_y_shares, SEED)
+    # integral_state_x_shares = rscode.shares_noissy_channel(integral_state_x_shares, SEED)
+    # integral_state_y_shares = rscode.shares_noissy_channel(integral_state_y_shares, SEED)
 
     # Compute linear and angular velocities
     transformation_inverse = np.array([

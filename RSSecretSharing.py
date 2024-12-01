@@ -25,8 +25,7 @@ class RSSecretSharing:
         return r0, s0, t0
 
     def base_inverse(self, a):
-        _, b, _ = self.base_egcd(a, self.PRIME)
-        return b if b >= 0 else b + self.PRIME
+        return pow(a, -1, self.PRIME)
 
     def base_add(self, a, b):
         return (a + b) % self.PRIME
@@ -83,7 +82,7 @@ class RSSecretSharing:
 
     def poly_divmod(self, A, B):
         t = self.base_inverse(self.lc(B))
-        Q = [0] * len(A)
+        Q = [0] * (len(A))
         R = copy(A)
         for i in reversed(range(len(A) - len(B) + 1)):
             Q[i] = self.base_mul(t, R[i + len(B) - 1])
@@ -131,19 +130,26 @@ class RSSecretSharing:
         T0, T1 = [], [1]
         while True:
             Q, R2 = self.poly_divmod(R0, R1)
-            if self.deg(R0) < max_degree + max_error_count:
-                G, leftover = self.poly_divmod(R0, T0)
+            if self.deg(R1) < max_degree + max_error_count:
+                G, leftover = self.poly_divmod(R1, T1)
                 if leftover == []:
-                    return G, T0
+                    return G, T1
                 return None
             R0, S0, T0, R1, S1, T1 = R1, S1, T1, R2, self.poly_sub(S0, self.poly_mul(S1, Q)), self.poly_sub(T0, self.poly_mul(T1, Q))
 
     def shamir_share(self, secret):
+        print (f"Original Data (non-int): {secret}")
+        secret = int(secret)
+        print (f"Original Data: {secret}")
         polynomial = [secret] + [random.randrange(self.PRIME) for _ in range(self.T)]
-        return [self.poly_eval(polynomial, p) for p in self.POINTS]
-
+        shares_of_secret = [self.poly_eval(polynomial, p) for p in self.POINTS]
+        # print (f"Shares of the Original Data: {shares_of_secret}")
+        return(shares_of_secret)
+    
     def shamir_robust_reconstruct(self, shares):
-        points_values = [(p, v) for p, v in zip(self.POINTS, shares) if v is not None]
+        def is_nan(value):
+            return isinstance(value, float) and np.isnan(value)
+        points_values = [(p, v) for p, v in zip(self.POINTS, shares) if v is not None and not is_nan(v)]
         assert len(points_values) >= self.N - self.MAX_MISSING
         points, values = zip(*points_values)
         polynomial, error_locator = self.gao_decoding(points, values, self.R, self.MAX_MANIPULATED)
@@ -154,64 +160,80 @@ class RSSecretSharing:
         return secret, error_indices
 
     def shares_noissy_channel(self, shares, seed=None): 
-        if isinstance(shares,np.ndarray):
-            is_array=True
-            if shares.ndim==1:
-                shares=shares.reshape(1,-1)
-            rows,cols=shares.shape
-        elif isinstance(shares,list):
-            is_array=False
-            if all(isinstance(elem,list) for elem in shares):
-                rows=len(shares)
-                cols=len(shares[0])
+        if isinstance(shares, np.ndarray):
+            is_array = True
+            if shares.ndim == 1:
+                shares = shares.reshape(1, -1)
+            rows, cols = shares.shape
+        elif isinstance(shares, list):
+            is_array = False
+            if all(isinstance(elem, list) for elem in shares):
+                rows = len(shares)
+                cols = len(shares[0])
             else:
-                shares=[shares]
-                rows=1
-                cols=len(shares[0])
+                shares = [shares]
+                rows = 1
+                cols = len(shares[0])
         else:
             raise TypeError("Unsupported data type for shares")
-        if self.MAX_MANIPULATED+self.MAX_MISSING>cols:
+        if self.MAX_MANIPULATED + self.MAX_MISSING > cols:
             raise ValueError("The total of manipulated and missing cannot be greater than the number of columns.")
         if seed is not None:
-            np.random.seed(seed)
             random.seed(seed)
         else:
-            np.random.seed()
             random.seed()
         if is_array:
-            modified_matrix=shares.copy()
-            if modified_matrix.dtype!=object:
-                modified_matrix=modified_matrix.astype(object)
+            modified_matrix = shares.copy()
+            if modified_matrix.dtype != object:
+                modified_matrix = modified_matrix.astype(object)
         else:
-            modified_matrix=[row.copy() for row in shares]
-        columns_to_modify=random.sample(range(cols),self.MAX_MANIPULATED+self.MAX_MISSING)
-        columns_to_replace_with_random=columns_to_modify[:self.MAX_MANIPULATED]
-        columns_to_replace_with_nan=columns_to_modify[self.MAX_MANIPULATED:]
+            modified_matrix = [row.copy() for row in shares]
+        columns_to_modify = random.sample(range(cols), self.MAX_MANIPULATED + self.MAX_MISSING)
+        columns_to_replace_with_random = columns_to_modify[:self.MAX_MANIPULATED]
+        columns_to_replace_with_nan = columns_to_modify[self.MAX_MANIPULATED:]
         if is_array:
             for col in columns_to_replace_with_random:
-                modified_matrix[:,col]=np.random.randint(0,self.PRIME,size=rows)
+                modified_matrix[:, col] = np.array([random.randrange(self.PRIME) for _ in range(rows)], dtype=object)
         else:
             for col in columns_to_replace_with_random:
                 for row in range(rows):
-                    modified_matrix[row][col]=random.randrange(self.PRIME)
+                    modified_matrix[row][col] = random.randrange(self.PRIME)
         if is_array:
-            modified_matrix[:,columns_to_replace_with_nan]=float('nan')
+            for col in columns_to_replace_with_nan:
+                modified_matrix[:, col] = np.array([float('nan')] * rows, dtype=object)
         else:
             for col in columns_to_replace_with_nan:
                 for row in range(rows):
-                    modified_matrix[row][col]=float('nan')
-        if rows==1:
+                    modified_matrix[row][col] = float('nan')
+        if rows == 1:
             if is_array:
                 return modified_matrix[0]
             else:
                 return modified_matrix[0]
         else:
             return modified_matrix
-    
+
     def shares_of_vector(self, vector):
-        share_matrix = np.zeros((len(vector), self.N))
-        share_matrix_noisy = np.zeros((len(vector), self.N))
+        share_matrix = np.zeros((len(vector), self.N), dtype=object)
         for index, state in enumerate(vector):
-            share_matrix[index, :] = (self.shamir_share(state))
+            share_matrix[index, :] = self.shamir_share(state)
         share_matrix_noisy = self.shares_noissy_channel(share_matrix, self.RAN_SEED)
-        return share_matrix_noisy
+        return share_matrix_noisy  # Return the noisy shares
+    
+
+# # Example 128-bit prime number
+# PRIME = 340282366920938463463374607431768211507  # This is 2^128 - 159
+# # Initialize the RSSecretSharing class
+# rs = RSSecretSharing(PRIME=PRIME, K=1, N=5, T=1, MAX_MISSING=1, MAX_MANIPULATED=1, RAN_SEED=42)
+# # Secret to share
+# secret = 0
+# # Generate shares
+# shares = rs.shamir_share(secret)
+# print("Shares:", shares)
+# # Simulate a noisy channel
+# noisy_shares = rs.shares_noissy_channel(shares)
+# print("Noisy Shares:", noisy_shares)
+# # Reconstruct the secret
+# reconstructed_secret, error_indices = rs.shamir_robust_reconstruct(noisy_shares)
+# print("Reconstructed Secret:", reconstructed_secret)
+# print("Error Indices:", error_indices)
