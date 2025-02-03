@@ -10,7 +10,7 @@ QU_DELTA = 10
 PRIME = 18446744073709551557
 NUM_SHARES = 5
 T_POLY_DEGREE = 1 
-MAX_MISSING = 0
+MAX_MISSING = 1
 MAX_MANIPULATED = 1
 SEED = 3
 rscode = RSSecretSharing(PRIME, 1, NUM_SHARES, T_POLY_DEGREE, MAX_MISSING, MAX_MANIPULATED, SEED)
@@ -143,9 +143,9 @@ for k in range(num_time_steps):
     integral_state_y_shares_new = [None if isinstance(x, (float, np.floating)) and math.isnan(x) else x for x in integral_state_y_shares_new]
     
     # Reconstruct the Control Inputs
-    u_x_shares = [int(x) for x in u_x_shares]
+    u_x_shares = [int(x) if x is not None else x for x in u_x_shares]
     u_x_rscode, _ = rscode.shamir_robust_reconstruct(u_x_shares)
-    u_y_shares = [int(x) for x in u_y_shares]
+    u_y_shares = [int(x) if x is not None else x for x in u_y_shares]
     u_y_rscode, _ = rscode.shamir_robust_reconstruct(u_y_shares)
     u_x_rscode = decode_quantized_value(decode_quantized_value(u_x_rscode))
     u_y_rscode = decode_quantized_value(decode_quantized_value(u_y_rscode))
