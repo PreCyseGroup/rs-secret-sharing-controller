@@ -2,6 +2,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from RSSecretSharing import RSSecretSharing
 import math
+import random
+
 # Global Quantization Parameters
 QU_BASE = 2
 QU_GAMMA = 100
@@ -76,6 +78,8 @@ control_input_x_rscode = []
 control_input_y_rscode = []
 
 # Controller states (integral components)
+rscode_error_index = np.zeros(num_time_steps + 1)
+rscode_nan_index = np.zeros(num_time_steps + 1)
 integral_state_x = np.zeros(num_time_steps + 1)
 integral_state_y = np.zeros(num_time_steps + 1)
 integral_state_x_rscode = np.zeros(num_time_steps + 1)
@@ -84,8 +88,8 @@ integral_state_x_qu = custom_quantize(integral_state_x_rscode[0])
 integral_state_y_qu = custom_quantize(integral_state_y_rscode[0])
 integral_state_x_shares = rscode.shamir_share(integral_state_x_qu)
 integral_state_y_shares = rscode.shamir_share(integral_state_y_qu)
-integral_state_x_shares = rscode.shares_noissy_channel(integral_state_x_shares, SEED)
-integral_state_y_shares = rscode.shares_noissy_channel(integral_state_y_shares, SEED)
+# integral_state_x_shares = rscode.shares_noissy_channel(integral_state_x_shares, SEED)
+# integral_state_y_shares = rscode.shares_noissy_channel(integral_state_y_shares, SEED)
 
 
 for k in range(num_time_steps):
@@ -144,24 +148,25 @@ for k in range(num_time_steps):
     
     # Reconstruct the Control Inputs
     u_x_shares = [int(x) if x is not None else x for x in u_x_shares]
-    u_x_rscode, _ = rscode.shamir_robust_reconstruct(u_x_shares)
+    u_x_rscode, rscode_error_index[k], rscode_nan_index[k] = rscode.shamir_robust_reconstruct(u_x_shares)
     u_y_shares = [int(x) if x is not None else x for x in u_y_shares]
-    u_y_rscode, _ = rscode.shamir_robust_reconstruct(u_y_shares)
+    u_y_rscode, _, _= rscode.shamir_robust_reconstruct(u_y_shares)
     u_x_rscode = decode_quantized_value(decode_quantized_value(u_x_rscode))
     u_y_rscode = decode_quantized_value(decode_quantized_value(u_y_rscode))
     control_input_x_rscode.append(u_x_rscode)
     control_input_y_rscode.append(u_y_rscode)
+    SEED = random.randint(0, 1000000)
     # Update integral states
-    integral_state_x_re, _ = rscode.shamir_robust_reconstruct(integral_state_x_shares_new)
-    integral_state_y_re, _ = rscode.shamir_robust_reconstruct(integral_state_y_shares_new)
+    integral_state_x_re, _, _ = rscode.shamir_robust_reconstruct(integral_state_x_shares_new)
+    integral_state_y_re, _, _ = rscode.shamir_robust_reconstruct(integral_state_y_shares_new)
     integral_state_x[k + 1] = decode_quantized_value(decode_quantized_value(integral_state_x_re))
     integral_state_y[k + 1] = decode_quantized_value(decode_quantized_value(integral_state_y_re))
     integral_state_x_qu = custom_quantize(integral_state_x_rscode[k + 1])
     integral_state_y_qu = custom_quantize(integral_state_y_rscode[k + 1])
     integral_state_x_shares = rscode.shamir_share(integral_state_x_qu)
     integral_state_y_shares = rscode.shamir_share(integral_state_y_qu)  
-    # integral_state_x_shares = rscode.shares_noissy_channel(integral_state_x_shares, SEED)
-    # integral_state_y_shares = rscode.shares_noissy_channel(integral_state_y_shares, SEED)
+    integral_state_x_shares = rscode.shares_noissy_channel(integral_state_x_shares, SEED)
+    integral_state_y_shares = rscode.shares_noissy_channel(integral_state_y_shares, SEED)
 
     # Compute linear and angular velocities
     transformation_inverse = np.array([
@@ -182,9 +187,7 @@ for k in range(num_time_steps):
     current_x += sampling_time * linear_velocity_rscode * np.cos(current_theta)
     current_y += sampling_time * linear_velocity_rscode * np.sin(current_theta)
     current_theta += sampling_time * angular_velocity_rscode
-
-    print(angular_velocity_rscode)
-
+    
     # Wrap current_theta to [-π, π]
     current_theta = (current_theta + np.pi) % (2 * np.pi) - np.pi
 
@@ -198,9 +201,11 @@ absolute_position_error = np.array(absolute_position_error)
 control_input_x = np.array(control_input_x)
 control_input_y = np.array(control_input_y)
 
+
+
 # Plotting the robot trajectory vs. reference trajectory
 plt.figure()
-plt.plot(reference_x, reference_y, 'r--', label='Reference Trajectory')
+plt.plot(reference_x, reference_y, 'r--', label='Reference Trajectory', linewidth=4.5)
 plt.plot(robot_trajectory_x, robot_trajectory_y, 'b-', label='Robot Trajectory')
 plt.xlabel('X position [m]')
 plt.ylabel('Y position [m]')
@@ -208,6 +213,7 @@ plt.legend()
 plt.grid(True)
 plt.axis('equal')
 plt.title('Robot Trajectory Tracking')
+plt.savefig('trajectory_tracking.eps', format='eps', bbox_inches='tight')
 plt.show()
 
 # Plotting position errors over time
@@ -219,4 +225,65 @@ plt.ylabel('Position Error [m]')
 plt.legend()
 plt.grid(True)
 plt.title('Tracking Errors')
+plt.savefig('tracking_errors.eps', format='eps', bbox_inches='tight')
+plt.show()
+
+# Number of time steps to display in the table
+TABLE_DISPLAY_STEPS = 20
+# Create a table visualization showing error and NaN indices
+display_steps = min(TABLE_DISPLAY_STEPS, num_time_steps)  # Limit to TABLE_DISPLAY_STEPS or less
+# Calculate figure size to maintain square cells
+# Adjust the figure size based on the ratio of rows to columns
+cell_aspect_ratio = NUM_SHARES / display_steps
+if cell_aspect_ratio > 1:
+    # More rows than columns, make figure wider
+    fig_width = 10
+    fig_height = 10 / cell_aspect_ratio
+else:
+    # More columns than rows, make figure taller
+    fig_height = 10
+    fig_width = 10 * cell_aspect_ratio
+# Ensure minimum dimensions
+fig_width = max(fig_width, 6)
+fig_height = max(fig_height, 6)
+plt.figure(figsize=(fig_width, fig_height))
+
+# Create a matrix of all green cells initially
+cell_colors = np.full((NUM_SHARES, display_steps), 'green')
+
+# Mark cells with errors as red and cells with NaN as black
+for t in range(display_steps):
+    if rscode_error_index[t] >= 0 and rscode_error_index[t] < NUM_SHARES:
+        cell_colors[int(rscode_error_index[t]), t] = 'red'
+    if rscode_nan_index[t] >= 0 and rscode_nan_index[t] < NUM_SHARES:
+        cell_colors[int(rscode_nan_index[t]), t] = 'black'
+
+# Create a table with colored cells
+table = plt.table(
+    cellColours=cell_colors,
+    cellLoc='center',
+    loc='center',
+    rowLabels=[f'Share {i}' for i in range(NUM_SHARES)],
+    colLabels=[f'{i}' for i in range(display_steps)],
+)
+
+# Adjust table appearance
+table.auto_set_font_size(False)
+table.set_fontsize(9)
+# Scale to maintain square cells
+table.scale(1, 1)
+
+# Remove axes
+plt.axis('off')
+plt.title(f'Share Status for First {display_steps} Time Steps (Green: OK, Red: Error, Black: NaN)')
+# Add a legend
+from matplotlib.patches import Patch
+legend_elements = [
+    Patch(facecolor='green', label='OK'),
+    Patch(facecolor='red', label='Error'),
+    Patch(facecolor='black', label='NaN')
+]
+plt.legend(handles=legend_elements, loc='upper center', bbox_to_anchor=(0.5, 0.05))
+plt.tight_layout()
+plt.savefig('share_status_table.eps', format='eps', dpi=1200)
 plt.show()
