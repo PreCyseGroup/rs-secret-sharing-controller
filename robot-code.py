@@ -18,11 +18,33 @@ SEED = 3
 NON_RESPONSIVE_CLOUD= [2] 
 MALICIOUS_CLOUD = [0]
 rscode = RSSecretSharing(PRIME, 1, NUM_SHARES, T_POLY_DEGREE, MAX_MISSING, MAX_MANIPULATED, SEED)
+##
+def saturate_speeds(w, v, wrmax, wlmax, r, d):
+        if w > 2 * wrmax * r / d:
+            w = 2 * wrmax * r / d
+
+        if w < -(2 * wrmax * r / d):
+            w = -(2 * wrmax * r / d)
+
+        if v > r * wrmax - d / 2 * w:
+            v = r * wrmax - d / 2 * w
+
+        if v > r * wlmax + d / 2 * w:
+            v = r * wlmax + d / 2 * w
+
+        if v < -(r * wrmax - d / 2 * w):
+            v = -(r * wrmax - d / 2 * w)
+
+        if v < -(r * wlmax + d / 2 * w):
+            v = -(r * wlmax + d / 2 * w)
+        return w, v
+##
 def custom_quantize(x):
     if x < -QU_BASE**QU_GAMMA or x > QU_BASE**QU_GAMMA - QU_BASE**(-QU_DELTA):
         raise ValueError("Input out of range")
     scaled = round(x * (QU_BASE ** QU_DELTA))
     return scaled % PRIME
+##
 def decode_quantized_value(z_mod_Q):
     half_Q = PRIME // 2
     unscaled = z_mod_Q / (QU_BASE ** QU_DELTA)
@@ -34,6 +56,7 @@ def decode_quantized_value(z_mod_Q):
     elif unscaled > max_value:
         unscaled -= 2 * QU_BASE**QU_GAMMA
     return unscaled
+##
 # Simulation parameters
 sampling_time = 0.15                        # Sampling time [s]
 lookahead_distance = 0.1                    # Lookahead distance [m]
@@ -43,7 +66,7 @@ num_time_steps = len(time_vector)
 # Robot parameters
 wheel_radius = 0.0205      # Wheel radius [m]
 wheel_base = 0.053         # Wheelbase width [m]
-max_wheel_speed = 10       # Max wheel angular speed [rad/s]
+max_wheel_speed = 10     # Max Angular Velocity
 conversion_matrix_robot = np.array([[wheel_radius / 2, wheel_radius / 2], 
                                      [wheel_radius / wheel_base, -wheel_radius / wheel_base]])
 # Controller gains
@@ -218,10 +241,7 @@ for k in range(num_time_steps):
     linear_velocity_rscode = velocities_rscode[0]
     angular_velocity_rscode = velocities_rscode[1]
     # Saturate velocities to robot's physical limits for RS Code
-    max_linear_velocity = wheel_radius * max_wheel_speed
-    max_angular_velocity = 2 * max_wheel_speed * wheel_radius / wheel_base
-    linear_velocity_rscode = np.clip(linear_velocity_rscode, -max_linear_velocity, max_linear_velocity)
-    angular_velocity_rscode = np.clip(angular_velocity_rscode, -max_angular_velocity, max_angular_velocity)
+    angular_velocity_rscode, linear_velocity_rscode = saturate_speeds(angular_velocity_rscode, linear_velocity_rscode, max_wheel_speed, max_wheel_speed, wheel_radius, wheel_base)
     # Store the velocities for RS Code
     linear_velocities_rscode.append(linear_velocity_rscode)
     angular_velocities_rscode.append(angular_velocity_rscode)
@@ -363,11 +383,7 @@ for k in range(num_time_steps):
     velocities_shamir = transformation_inverse_shamir @ control_vector_shamir
     linear_velocity_shamir = velocities_shamir[0]
     angular_velocity_shamir = velocities_shamir[1]
-    # Saturate velocities to robot's physical limits for Shamir
-    max_linear_velocity = wheel_radius * max_wheel_speed
-    max_angular_velocity = 2 * max_wheel_speed * wheel_radius / wheel_base
-    linear_velocity_shamir = np.clip(linear_velocity_shamir, -max_linear_velocity, max_linear_velocity)
-    angular_velocity_shamir = np.clip(angular_velocity_shamir, -max_angular_velocity, max_angular_velocity)
+    angular_velocity_shamir, linear_velocity_shamir = saturate_speeds(angular_velocity_shamir, linear_velocity_shamir, max_wheel_speed, max_wheel_speed, wheel_radius, wheel_base)
     # Store the velocities for Shamir
     linear_velocities_shamir.append(linear_velocity_shamir)
     angular_velocities_shamir.append(angular_velocity_shamir)
@@ -383,7 +399,11 @@ for k in range(num_time_steps):
     current_y_shamir += sampling_time * linear_velocity_shamir * np.sin(current_theta_shamir)
     current_theta_shamir += sampling_time * angular_velocity_shamir
     current_theta_shamir = (current_theta_shamir + np.pi) % (2 * np.pi) - np.pi
+##
+##
 # Convert lists to numpy arrays
+##
+##
 robot_trajectory_x = np.array(robot_trajectory_x)
 robot_trajectory_y = np.array(robot_trajectory_y)
 robot_trajectory_theta = np.array(robot_trajectory_theta)
@@ -406,20 +426,33 @@ control_input_y_shamir = np.array(control_input_y_shamir)
 ## -------------------- Plotting the robot trajectories vs. reference trajectory --------------------
 ##
 ##
-plt.figure(figsize=(12, 8))
+plt.figure(figsize=(12, 6))
+# Subplot for RS Code trajectory
+plt.subplot(1, 2, 1)  # 1 row, 2 columns, 1st subplot
 plt.plot(reference_x, reference_y, 'r--', label='Reference Trajectory', linewidth=6.5)
-plt.plot(robot_trajectory_x, robot_trajectory_y, 'b-', label='Robot Trajectory (Reed-Solomon)', linewidth=3.5)
-plt.plot(robot_trajectory_x_shamir, robot_trajectory_y_shamir, 'g-', label='Robot Trajectory (Shamir)', linewidth=2.5)
-plt.plot(0, 0, 'k*', markersize=15, label='Start Point')  # Add black star at starting point
-plt.scatter(robot_trajectory_x, robot_trajectory_y, marker='o', color='blue', s=20, label='RS Code Points')
-plt.scatter(robot_trajectory_x_shamir, robot_trajectory_y_shamir, marker='x', color='green', s=20, label='Shamir Points')
+plt.plot(robot_trajectory_x, robot_trajectory_y, 'b-', label='Robot Trajectory (Reed-Solomon)', linewidth=2.5)
+plt.plot(0, 0, 'k*', markersize=20, label='Start Point')  # Starting point
+plt.plot(robot_trajectory_x[-1], robot_trajectory_y[-1], 'go', markersize=10, label='Stop Point')  # Ending point
 plt.xlabel('X position [m]')
 plt.ylabel('Y position [m]')
 plt.legend(loc='upper right')
 plt.grid(True)
 plt.axis('equal')
-plt.title('Robot Trajectory Tracking Comparison')
-plt.savefig('trajectory_tracking_comparison.eps', format='eps', bbox_inches='tight')
+plt.title('RS Code Trajectory Tracking Comparison')
+# Subplot for Shamir trajectory
+plt.subplot(1, 2, 2)  # 1 row, 2 columns, 2nd subplot
+plt.plot(reference_x, reference_y, 'r--', label='Reference Trajectory', linewidth=6.5)
+plt.plot(robot_trajectory_x_shamir, robot_trajectory_y_shamir, 'b-', label='Robot Trajectory (Shamir)', linewidth=2.5)
+plt.plot(0, 0, 'k*', markersize=20, label='Start Point')  # Starting point
+plt.plot(robot_trajectory_x_shamir[-1], robot_trajectory_y_shamir[-1], 'go', markersize=10, label='Stop Point')  # Ending point
+plt.xlabel('X position [m]')
+plt.ylabel('Y position [m]')
+plt.legend(loc='upper right')
+plt.grid(True)
+plt.axis('equal')
+plt.title('Shamir Trajectory Tracking Comparison')
+plt.tight_layout()  # Adjust layout to prevent overlap
+plt.savefig('Figures/trajectory_tracking_comparison_subplots.eps', format='eps', bbox_inches='tight')
 plt.show()
 ##
 ##
@@ -438,53 +471,53 @@ lines = line1 + line2 + line3 + line4
 labels = [l.get_label() for l in lines]
 plt.legend(lines, labels, loc='upper right')
 plt.title('Tracking Errors')
-plt.savefig('tracking_errors.eps', format='eps', bbox_inches='tight')
+plt.savefig('Figures/tracking_errors.eps', format='eps', bbox_inches='tight')
 plt.show()
 ##
 ##
 ## -------------------- Plot Timeline of the Events and Detection --------------------
 ##
 ##
-TABLE_DISPLAY_STEPS = 450
-display_steps = min(TABLE_DISPLAY_STEPS, num_time_steps)  
-cell_aspect_ratio = NUM_SHARES / display_steps
-if cell_aspect_ratio > 1:
-    fig_width = 10
-    fig_height = 10 / cell_aspect_ratio
-else:
-    fig_height = 10
-    fig_width = 10 * cell_aspect_ratio
-fig_width = max(fig_width, 6)
-fig_height = max(fig_height, 6)
-plt.figure(figsize=(fig_width, fig_height))
-cell_colors = np.full((NUM_SHARES, display_steps), 'green')
-for t in range(display_steps):
-    if rscode_error_index[t] >= 0 and rscode_error_index[t] < NUM_SHARES:
-        cell_colors[int(rscode_error_index[t]), t] = 'red'
-    if rscode_nan_index[t] >= 0 and rscode_nan_index[t] < NUM_SHARES:
-        cell_colors[int(rscode_nan_index[t]), t] = 'black'
-table = plt.table(
-    cellColours=cell_colors,
-    cellLoc='center',
-    loc='center',
-    rowLabels=[f'Share {i}' for i in range(NUM_SHARES)],
-    colLabels=[f'{i}' for i in range(display_steps)],
-)
-table.auto_set_font_size(False)
-table.set_fontsize(9)
-table.scale(1, 1)
-plt.axis('off')
-plt.title(f'Share Status for First {display_steps} Time Steps (Green: OK, Red: Error, Black: NaN)')
-from matplotlib.patches import Patch
-legend_elements = [
-    Patch(facecolor='green', label='OK'),
-    Patch(facecolor='red', label='Error'),
-    Patch(facecolor='black', label='NaN')
-]
-plt.legend(handles=legend_elements, loc='upper center', bbox_to_anchor=(0.5, 0.05))
-plt.tight_layout()
-plt.savefig('share_status_table.eps', format='eps', dpi=1200)
-plt.show()
+# TABLE_DISPLAY_STEPS = 450
+# display_steps = min(TABLE_DISPLAY_STEPS, num_time_steps)  
+# cell_aspect_ratio = NUM_SHARES / display_steps
+# if cell_aspect_ratio > 1:
+#     fig_width = 10
+#     fig_height = 10 / cell_aspect_ratio
+# else:
+#     fig_height = 10
+#     fig_width = 10 * cell_aspect_ratio
+# fig_width = max(fig_width, 6)
+# fig_height = max(fig_height, 6)
+# plt.figure(figsize=(fig_width, fig_height))
+# cell_colors = np.full((NUM_SHARES, display_steps), 'green')
+# for t in range(display_steps):
+#     if rscode_error_index[t] >= 0 and rscode_error_index[t] < NUM_SHARES:
+#         cell_colors[int(rscode_error_index[t]), t] = 'red'
+#     if rscode_nan_index[t] >= 0 and rscode_nan_index[t] < NUM_SHARES:
+#         cell_colors[int(rscode_nan_index[t]), t] = 'black'
+# table = plt.table(
+#     cellColours=cell_colors,
+#     cellLoc='center',
+#     loc='center',
+#     rowLabels=[f'Share {i}' for i in range(NUM_SHARES)],
+#     colLabels=[f'{i}' for i in range(display_steps)],
+# )
+# table.auto_set_font_size(False)
+# table.set_fontsize(9)
+# table.scale(1, 1)
+# plt.axis('off')
+# plt.title(f'Share Status for First {display_steps} Time Steps (Green: OK, Red: Error, Black: NaN)')
+# from matplotlib.patches import Patch
+# legend_elements = [
+#     Patch(facecolor='green', label='OK'),
+#     Patch(facecolor='red', label='Error'),
+#     Patch(facecolor='black', label='NaN')
+# ]
+# plt.legend(handles=legend_elements, loc='upper center', bbox_to_anchor=(0.5, 0.05))
+# plt.tight_layout()
+# plt.savefig('share_status_table.eps', format='eps', dpi=1200)
+# plt.show()
 ##
 ##
 # -------------------- Plotting Velocities --------------------
@@ -508,7 +541,7 @@ axs[1].set_title('Angular Velocity Comparison')
 axs[1].legend(loc='upper right')
 axs[1].grid(True)
 plt.tight_layout()  # Adjust layout to prevent overlap
-plt.savefig('velocity_comparison.eps', format='eps', bbox_inches='tight')
+plt.savefig('Figures/velocity_comparison.eps', format='eps', bbox_inches='tight')
 plt.show()
 ##
 ##
@@ -533,7 +566,7 @@ axs[1].set_title('Left Wheel Speed Comparison')
 axs[1].legend(loc='upper right')
 axs[1].grid(True)
 plt.tight_layout()  # Adjust layout to prevent overlap
-plt.savefig('wheel_speed_comparison.eps', format='eps', bbox_inches='tight')
+plt.savefig('Figures/wheel_speed_comparison.eps', format='eps', bbox_inches='tight')
 plt.show()
 ##
 ##
@@ -573,4 +606,4 @@ data_to_save = {
     'reference_y': reference_y,  
     'reference_theta': reference_theta 
 }
-scipy.io.savemat('robot_simulation_data.mat', data_to_save)
+scipy.io.savemat('Figures/robot_simulation_data.mat', data_to_save)
