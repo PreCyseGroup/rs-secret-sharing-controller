@@ -2,8 +2,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from RSSecretSharing import RSSecretSharing
 import math
-import random
-
+import scipy.io  # Ensure this import is at the top of your file
+SC_SWIT_TIME = 15
 # Global Quantization Parameters
 QU_BASE = 2
 QU_GAMMA = 100
@@ -15,14 +15,14 @@ T_POLY_DEGREE = 1
 MAX_MISSING = 1
 MAX_MANIPULATED = 1
 SEED = 3
+NON_RESPONSIVE_CLOUD= [2] 
+MALICIOUS_CLOUD = [0]
 rscode = RSSecretSharing(PRIME, 1, NUM_SHARES, T_POLY_DEGREE, MAX_MISSING, MAX_MANIPULATED, SEED)
-
 def custom_quantize(x):
     if x < -QU_BASE**QU_GAMMA or x > QU_BASE**QU_GAMMA - QU_BASE**(-QU_DELTA):
         raise ValueError("Input out of range")
     scaled = round(x * (QU_BASE ** QU_DELTA))
     return scaled % PRIME
-
 def decode_quantized_value(z_mod_Q):
     half_Q = PRIME // 2
     unscaled = z_mod_Q / (QU_BASE ** QU_DELTA)
@@ -34,55 +34,51 @@ def decode_quantized_value(z_mod_Q):
     elif unscaled > max_value:
         unscaled -= 2 * QU_BASE**QU_GAMMA
     return unscaled
-    
 # Simulation parameters
 sampling_time = 0.15                        # Sampling time [s]
 lookahead_distance = 0.1                    # Lookahead distance [m]
 total_simulation_time = 355 * sampling_time # Total simulation time [s]
 time_vector = np.arange(0, total_simulation_time, sampling_time)  # Time vector
 num_time_steps = len(time_vector)
-
 # Robot parameters
 wheel_radius = 0.0205      # Wheel radius [m]
 wheel_base = 0.053         # Wheelbase width [m]
 max_wheel_speed = 10       # Max wheel angular speed [rad/s]
-
+conversion_matrix_robot = np.array([[wheel_radius / 2, wheel_radius / 2], 
+                                     [wheel_radius / wheel_base, -wheel_radius / wheel_base]])
 # Controller gains
 proportional_gain = 4.0
 integral_gain = 0.2
-
 # Read reference trajectory from files
 reference_x = np.loadtxt('./Reference Trajectories/xr.txt', delimiter=",")
 reference_y = np.loadtxt('./Reference Trajectories/yr.txt', delimiter=",")
 reference_theta = np.loadtxt('./Reference Trajectories/thetar.txt', delimiter=",")
-
 # Initialize variables for storing simulation data
 robot_trajectory_x = []
 robot_trajectory_y = []
 robot_trajectory_theta = []
-robot_trajectory_x_shamir = []  # New trajectory for shamir_decode
-robot_trajectory_y_shamir = []  # New trajectory for shamir_decode
-robot_trajectory_theta_shamir = []  # New trajectory for shamir_decode
+robot_trajectory_x_shamir = []  
+robot_trajectory_y_shamir = []  
+robot_trajectory_theta_shamir = []  
 position_error_x = []
-position_error_x_shamir = []  # New position errors for shamir_decode
-position_error_y_shamir = []  # New position errors for shamir_decode
-absolute_position_error_shamir = []  # New absolute position errors for shamir_decode
+position_error_x_shamir = []  
+position_error_y_shamir = []  
+absolute_position_error_shamir = []  
 position_error_y = []
 absolute_position_error = []
 control_input_x = []
 control_input_y = []
 control_input_x_rscode = []
 control_input_y_rscode = []
-control_input_x_shamir = []  # New control inputs for shamir_decode
-control_input_y_shamir = []  # New control inputs for shamir_decode
-
+control_input_x_shamir = []  
+control_input_y_shamir = []  
 # Controller states (integral components)
 rscode_error_index = np.zeros(num_time_steps + 1)
 rscode_nan_index = np.zeros(num_time_steps + 1)
 integral_state_x_rscode = np.zeros(num_time_steps + 1)
 integral_state_y_rscode = np.zeros(num_time_steps + 1)
-integral_state_x_shamir = np.zeros(num_time_steps + 1)  # New integral states for shamir_decode
-integral_state_y_shamir = np.zeros(num_time_steps + 1)  # New integral states for shamir_decode
+integral_state_x_shamir = np.zeros(num_time_steps + 1) 
+integral_state_y_shamir = np.zeros(num_time_steps + 1)  
 integral_state_x_qu = custom_quantize(integral_state_x_rscode[0])
 integral_state_y_qu = custom_quantize(integral_state_y_rscode[0])
 integral_state_x_shares = rscode.shamir_share(integral_state_x_qu)
@@ -91,6 +87,15 @@ integral_state_y_shares = rscode.shamir_share(integral_state_y_qu)
 current_x = 0.0
 current_y = 0.0
 current_theta = np.pi
+# Initialize lists to store velocities and wheel speeds
+linear_velocities_rscode = []
+angular_velocities_rscode = []
+linear_velocities_shamir = []
+angular_velocities_shamir = []
+right_wheel_speeds_rscode = []
+left_wheel_speeds_rscode = []
+right_wheel_speeds_shamir = []
+left_wheel_speeds_shamir = []
 # -------------------- RS Code Simulation Loop --------------------
 for k in range(num_time_steps):
     # Store current position for RS Code
@@ -120,9 +125,28 @@ for k in range(num_time_steps):
     error_shifted_y_qu = custom_quantize(error_shifted_y)
     error_shifted_x_shares = rscode.shamir_share(error_shifted_x_qu)
     error_shifted_y_shares = rscode.shamir_share(error_shifted_y_qu)
-    error_shifted_x_shares = rscode.shares_noissy_channel(error_shifted_x_shares, SEED)
-    error_shifted_y_shares = rscode.shares_noissy_channel(error_shifted_y_shares, SEED)
-    #
+    ##
+    ### Scenarios Conditions / Begin
+    if k * sampling_time < SC_SWIT_TIME: 
+        print(f"Scenario 1 - Step {k + 1}")
+    elif (k * sampling_time) >= SC_SWIT_TIME and k * sampling_time < (2*SC_SWIT_TIME):
+        print(f"Scenario 2 - Step {k + 1}")
+        error_shifted_x_shares = rscode.simulate_missing_data(error_shifted_x_shares, NON_RESPONSIVE_CLOUD)
+        error_shifted_x_shares = error_shifted_x_shares[0]
+        error_shifted_y_shares = rscode.simulate_missing_data(error_shifted_y_shares, NON_RESPONSIVE_CLOUD)
+        error_shifted_y_shares = error_shifted_y_shares[0]
+    else:
+        print(f"Scenario 3 - Step {k + 1}")
+        error_shifted_x_shares = rscode.simulate_missing_data(error_shifted_x_shares, NON_RESPONSIVE_CLOUD)
+        error_shifted_x_shares = error_shifted_x_shares[0]
+        error_shifted_x_shares = rscode.simulate_manipulated_data(error_shifted_x_shares, MALICIOUS_CLOUD)
+        error_shifted_x_shares = error_shifted_x_shares[0]
+        error_shifted_y_shares = rscode.simulate_missing_data(error_shifted_y_shares, NON_RESPONSIVE_CLOUD)
+        error_shifted_y_shares = error_shifted_y_shares[0]
+        error_shifted_y_shares = rscode.simulate_manipulated_data(error_shifted_y_shares, MALICIOUS_CLOUD)
+        error_shifted_y_shares = error_shifted_y_shares[0]
+    ### Scenarios Conditions / End
+    ##
     u_x_shares = [0] * NUM_SHARES
     u_y_shares = [0] * NUM_SHARES
     integral_state_x_shares_new = [0] * NUM_SHARES
@@ -151,7 +175,6 @@ for k in range(num_time_steps):
     control_input_x_rscode.append(u_x_rscode)
     control_input_y_rscode.append(u_y_rscode)
     #
-    SEED = random.randint(0, 1000000)
     # Update integral states for RS Code
     integral_state_x_re, _, _ = rscode.shamir_robust_reconstruct(integral_state_x_shares_new)
     integral_state_y_re, _, _ = rscode.shamir_robust_reconstruct(integral_state_y_shares_new)
@@ -161,8 +184,30 @@ for k in range(num_time_steps):
     integral_state_y_qu = custom_quantize(integral_state_y_rscode[k + 1])
     integral_state_x_shares = rscode.shamir_share(integral_state_x_qu)
     integral_state_y_shares = rscode.shamir_share(integral_state_y_qu)
-    integral_state_x_shares = rscode.shares_noissy_channel(integral_state_x_shares, SEED)
-    integral_state_y_shares = rscode.shares_noissy_channel(integral_state_y_shares, SEED)
+    ##
+    ### Scenarios Conditions / Begin
+    if k * sampling_time < SC_SWIT_TIME:  
+        print(f"Scenario 1 - Step {k + 1}")
+    elif (k * sampling_time) >= SC_SWIT_TIME and k * sampling_time < (2*SC_SWIT_TIME):
+        print(f"Scenario 2 - Step {k + 1}")
+        integral_state_x_shares = rscode.simulate_missing_data(integral_state_x_shares, NON_RESPONSIVE_CLOUD)
+        integral_state_x_shares = integral_state_x_shares[0]
+        integral_state_y_shares = rscode.simulate_missing_data(integral_state_y_shares, NON_RESPONSIVE_CLOUD)
+        integral_state_y_shares = integral_state_y_shares[0]
+    else:
+        print(f"Scenario 3 - Step {k + 1}")
+        integral_state_x_shares = rscode.simulate_missing_data(integral_state_x_shares, NON_RESPONSIVE_CLOUD)
+        integral_state_x_shares = integral_state_x_shares[0]
+        print(integral_state_x_shares)
+        integral_state_x_shares = rscode.simulate_manipulated_data(integral_state_x_shares, MALICIOUS_CLOUD)
+        integral_state_x_shares = integral_state_x_shares[0]
+        print(integral_state_x_shares)
+        integral_state_y_shares = rscode.simulate_missing_data(integral_state_y_shares, NON_RESPONSIVE_CLOUD)
+        integral_state_y_shares = integral_state_y_shares[0]
+        integral_state_y_shares = rscode.simulate_manipulated_data(integral_state_y_shares, MALICIOUS_CLOUD)
+        integral_state_y_shares = integral_state_y_shares[0]
+    ### Scenarios Conditions / End
+    ##
     # Compute linear and angular velocities for RS Code
     transformation_inverse = np.array([
         [np.cos(current_theta), np.sin(current_theta)],
@@ -177,16 +222,27 @@ for k in range(num_time_steps):
     max_angular_velocity = 2 * max_wheel_speed * wheel_radius / wheel_base
     linear_velocity_rscode = np.clip(linear_velocity_rscode, -max_linear_velocity, max_linear_velocity)
     angular_velocity_rscode = np.clip(angular_velocity_rscode, -max_angular_velocity, max_angular_velocity)
+    # Store the velocities for RS Code
+    linear_velocities_rscode.append(linear_velocity_rscode)
+    angular_velocities_rscode.append(angular_velocity_rscode)
+    # Calculate wheel speeds for RS Code
+    wheel_speeds_rscode = np.linalg.inv(conversion_matrix_robot) @ np.array([[linear_velocity_rscode], [angular_velocity_rscode]])
+    left_wheel_speed_rscode = wheel_speeds_rscode[0, 0]
+    right_wheel_speed_rscode = wheel_speeds_rscode[1, 0]
+    # Store the wheel speeds for RS Code
+    left_wheel_speeds_rscode.append(left_wheel_speed_rscode)
+    right_wheel_speeds_rscode.append(right_wheel_speed_rscode)
     # Update robot position for RS Code
     current_x += sampling_time * linear_velocity_rscode * np.cos(current_theta)
     current_y += sampling_time * linear_velocity_rscode * np.sin(current_theta)
     current_theta += sampling_time * angular_velocity_rscode
-    # Wrap current_theta to [-π, π] for RS Code
     current_theta = (current_theta + np.pi) % (2 * np.pi) - np.pi
 # -------------------- Shamir Simulation Loop --------------------
 current_x_shamir = 0.0
 current_y_shamir = 0.0
 current_theta_shamir = np.pi
+integral_state_x_shares = rscode.shamir_share(0)
+integral_state_y_shares = rscode.shamir_share(0)
 for k in range(num_time_steps):
     # Store current position for Shamir
     robot_trajectory_x_shamir.append(current_x_shamir)
@@ -215,9 +271,28 @@ for k in range(num_time_steps):
     error_shifted_y_qu_shamir = custom_quantize(error_shifted_y_shamir)
     error_shifted_x_shares_shamir = rscode.shamir_share(error_shifted_x_qu_shamir)
     error_shifted_y_shares_shamir = rscode.shamir_share(error_shifted_y_qu_shamir)
-    error_shifted_x_shares_shamir = rscode.shares_noissy_channel(error_shifted_x_shares_shamir, SEED)
-    error_shifted_y_shares_shamir = rscode.shares_noissy_channel(error_shifted_y_shares_shamir, SEED)
-    #
+    ##
+    # ### Scenarios Conditions / Begin
+    if k * sampling_time < SC_SWIT_TIME: 
+        print(f"Scenario 1 - Step {k + 1}")
+    elif (k * sampling_time) >= SC_SWIT_TIME and k * sampling_time < (2*SC_SWIT_TIME):
+        print(f"Scenario 2 - Step {k + 1}")
+        error_shifted_x_shares_shamir = rscode.simulate_missing_data(error_shifted_x_shares_shamir, NON_RESPONSIVE_CLOUD)
+        error_shifted_x_shares_shamir = error_shifted_x_shares_shamir[0]
+        error_shifted_y_shares_shamir = rscode.simulate_missing_data(error_shifted_y_shares_shamir, NON_RESPONSIVE_CLOUD)
+        error_shifted_y_shares_shamir = error_shifted_y_shares_shamir[0]
+    else:
+        print(f"Scenario 3 - Step {k + 1}")
+        error_shifted_x_shares_shamir = rscode.simulate_missing_data(error_shifted_x_shares_shamir, NON_RESPONSIVE_CLOUD)
+        error_shifted_x_shares_shamir = error_shifted_x_shares_shamir[0]
+        error_shifted_x_shares_shamir = rscode.simulate_manipulated_data(error_shifted_x_shares_shamir, MALICIOUS_CLOUD)
+        error_shifted_x_shares_shamir = error_shifted_x_shares_shamir[0]
+        error_shifted_y_shares_shamir = rscode.simulate_missing_data(error_shifted_y_shares_shamir, NON_RESPONSIVE_CLOUD)
+        error_shifted_y_shares_shamir = error_shifted_y_shares_shamir[0]
+        error_shifted_y_shares_shamir = rscode.simulate_manipulated_data(error_shifted_y_shares_shamir, MALICIOUS_CLOUD)
+        error_shifted_y_shares_shamir = error_shifted_y_shares_shamir[0]
+    ### Scenarios Conditions / End 
+    ##
     u_x_shares_shamir = [0] * NUM_SHARES
     u_y_shares_shamir = [0] * NUM_SHARES
     integral_state_x_shares_new_shamir = [0] * NUM_SHARES
@@ -246,7 +321,6 @@ for k in range(num_time_steps):
     control_input_x_shamir.append(u_x_shamir)
     control_input_y_shamir.append(u_y_shamir)
     #
-    SEED = random.randint(0, 1000000)
     # Update integral states for Shamir
     integral_state_x_re_shamir = rscode.shamir_decode(integral_state_x_shares_new_shamir)
     integral_state_y_re_shamir = rscode.shamir_decode(integral_state_y_shares_new_shamir)
@@ -256,8 +330,30 @@ for k in range(num_time_steps):
     integral_state_y_qu = custom_quantize(integral_state_y_shamir[k + 1])
     integral_state_x_shares = rscode.shamir_share(integral_state_x_qu)
     integral_state_y_shares = rscode.shamir_share(integral_state_y_qu)
-    integral_state_x_shares = rscode.shares_noissy_channel(integral_state_x_shares, SEED)
-    integral_state_y_shares = rscode.shares_noissy_channel(integral_state_y_shares, SEED)
+    ###
+    ### Scenarios Conditions / Begin
+    if k * sampling_time < SC_SWIT_TIME: 
+        print(f"Scenario 1 - Step {k + 1}")
+    elif (k * sampling_time) >= SC_SWIT_TIME and k * sampling_time < (2*SC_SWIT_TIME):
+        print(f"Scenario 2 - Step {k + 1}")
+        integral_state_x_shares = rscode.simulate_missing_data(integral_state_x_shares, NON_RESPONSIVE_CLOUD)
+        integral_state_x_shares = integral_state_x_shares[0]
+        integral_state_y_shares = rscode.simulate_missing_data(integral_state_y_shares, NON_RESPONSIVE_CLOUD)
+        integral_state_y_shares = integral_state_y_shares[0]
+    else:
+        print(f"Scenario 3 - Step {k + 1}")
+        integral_state_x_shares = rscode.simulate_missing_data(integral_state_x_shares, NON_RESPONSIVE_CLOUD)
+        integral_state_x_shares = integral_state_x_shares[0]
+        print(integral_state_x_shares)
+        integral_state_x_shares = rscode.simulate_manipulated_data(integral_state_x_shares, MALICIOUS_CLOUD)
+        integral_state_x_shares = integral_state_x_shares[0]
+        print(integral_state_x_shares)
+        integral_state_y_shares = rscode.simulate_missing_data(integral_state_y_shares, NON_RESPONSIVE_CLOUD)
+        integral_state_y_shares = integral_state_y_shares[0]
+        integral_state_y_shares = rscode.simulate_manipulated_data(integral_state_y_shares, MALICIOUS_CLOUD)
+        integral_state_y_shares = integral_state_y_shares[0]
+    ### Scenarios Conditions / End
+    ###
     # Compute linear and angular velocities for Shamir
     transformation_inverse_shamir = np.array([
         [np.cos(current_theta_shamir), np.sin(current_theta_shamir)],
@@ -272,13 +368,21 @@ for k in range(num_time_steps):
     max_angular_velocity = 2 * max_wheel_speed * wheel_radius / wheel_base
     linear_velocity_shamir = np.clip(linear_velocity_shamir, -max_linear_velocity, max_linear_velocity)
     angular_velocity_shamir = np.clip(angular_velocity_shamir, -max_angular_velocity, max_angular_velocity)
+    # Store the velocities for Shamir
+    linear_velocities_shamir.append(linear_velocity_shamir)
+    angular_velocities_shamir.append(angular_velocity_shamir)
+    # Calculate wheel speeds for Shamir
+    wheel_speeds_shamir = np.linalg.inv(conversion_matrix_robot) @ np.array([[linear_velocity_shamir], [angular_velocity_shamir]])
+    left_wheel_speed_shamir = wheel_speeds_shamir[0, 0]
+    right_wheel_speed_shamir = wheel_speeds_shamir[1, 0]
+    # Store the wheel speeds for Shamir
+    left_wheel_speeds_shamir.append(left_wheel_speed_shamir)
+    right_wheel_speeds_shamir.append(right_wheel_speed_shamir)
     # Update robot position for Shamir
     current_x_shamir += sampling_time * linear_velocity_shamir * np.cos(current_theta_shamir)
     current_y_shamir += sampling_time * linear_velocity_shamir * np.sin(current_theta_shamir)
     current_theta_shamir += sampling_time * angular_velocity_shamir
-    # Wrap current_theta to [-π, π] for Shamir
     current_theta_shamir = (current_theta_shamir + np.pi) % (2 * np.pi) - np.pi
-
 # Convert lists to numpy arrays
 robot_trajectory_x = np.array(robot_trajectory_x)
 robot_trajectory_y = np.array(robot_trajectory_y)
@@ -292,18 +396,23 @@ absolute_position_error = np.array(absolute_position_error)
 position_error_x_shamir = np.array(position_error_x_shamir)
 position_error_y_shamir = np.array(position_error_y_shamir)
 absolute_position_error_shamir = np.array(absolute_position_error_shamir)
-# Control inputs
 control_input_x_rscode = np.array(control_input_x_rscode)
 control_input_y_rscode = np.array(control_input_y_rscode)
 control_input_x_shamir = np.array(control_input_x_shamir)
 control_input_y_shamir = np.array(control_input_y_shamir)
-# -------------------- Plotting --------------------
-# Plotting the robot trajectories vs. reference trajectory
+# ---------------------------------------------------------------------------------------------------- Plotting --------------------------------------------------------------------------------
+##
+##
+## -------------------- Plotting the robot trajectories vs. reference trajectory --------------------
+##
+##
 plt.figure(figsize=(12, 8))
-plt.plot(reference_x, reference_y, 'r--', label='Reference Trajectory', linewidth=4.5)
-plt.plot(robot_trajectory_x, robot_trajectory_y, 'b-', label='Robot Trajectory (Reed-Solomon)')
-plt.plot(robot_trajectory_x_shamir, robot_trajectory_y_shamir, 'g-', label='Robot Trajectory (Shamir)')
+plt.plot(reference_x, reference_y, 'r--', label='Reference Trajectory', linewidth=6.5)
+plt.plot(robot_trajectory_x, robot_trajectory_y, 'b-', label='Robot Trajectory (Reed-Solomon)', linewidth=3.5)
+plt.plot(robot_trajectory_x_shamir, robot_trajectory_y_shamir, 'g-', label='Robot Trajectory (Shamir)', linewidth=2.5)
 plt.plot(0, 0, 'k*', markersize=15, label='Start Point')  # Add black star at starting point
+plt.scatter(robot_trajectory_x, robot_trajectory_y, marker='o', color='blue', s=20, label='RS Code Points')
+plt.scatter(robot_trajectory_x_shamir, robot_trajectory_y_shamir, marker='x', color='green', s=20, label='Shamir Points')
 plt.xlabel('X position [m]')
 plt.ylabel('Y position [m]')
 plt.legend(loc='upper right')
@@ -312,59 +421,48 @@ plt.axis('equal')
 plt.title('Robot Trajectory Tracking Comparison')
 plt.savefig('trajectory_tracking_comparison.eps', format='eps', bbox_inches='tight')
 plt.show()
-#
-# Plotting position errors over time
+##
+##
+## -------------------- Plot Tracking Error Signal --------------------
+##
+##
 plt.figure(figsize=(12, 8))
-ax1 = plt.gca()
-ax2 = ax1.twinx()
-# Plot Robust errors on left axis
-line1 = ax1.plot(time_vector, position_error_x, 'b-', label='X Error (Reed-Solomon)')
-line2 = ax1.plot(time_vector, position_error_y, 'b--', label='Y Error (Reed-Solomon)')
-ax1.set_xlabel('Time [s]')
-ax1.set_ylabel('Position Error [m] (Reed-Solomon)', color='b')
-ax1.tick_params(axis='y', labelcolor='b')
-# Plot Shamir errors on right axis
-line3 = ax2.plot(time_vector, position_error_x_shamir, 'g-', label='X Error (Shamir)')
-line4 = ax2.plot(time_vector, position_error_y_shamir, 'g--', label='Y Error (Shamir)')
-ax2.set_ylabel('Position Error [m] (Shamir)', color='g')
-ax2.tick_params(axis='y', labelcolor='g')
-# Combine lines for legend
+line1 = plt.plot(time_vector, position_error_x, 'b-', label='X Error (Reed-Solomon)')
+line2 = plt.plot(time_vector, position_error_y, 'b--', label='Y Error (Reed-Solomon)')
+line3 = plt.plot(time_vector, position_error_x_shamir, 'g-', label='X Error (Shamir)')
+line4 = plt.plot(time_vector, position_error_y_shamir, 'g--', label='Y Error (Shamir)')
+plt.xlabel('Time [s]')
+plt.ylabel('Position Error [m]')
+plt.grid(True)
 lines = line1 + line2 + line3 + line4
 labels = [l.get_label() for l in lines]
-ax1.legend(lines, labels, loc='upper right')
-plt.grid(True)
+plt.legend(lines, labels, loc='upper right')
 plt.title('Tracking Errors')
 plt.savefig('tracking_errors.eps', format='eps', bbox_inches='tight')
 plt.show()
-#
-# Number of time steps to display in the table
-TABLE_DISPLAY_STEPS = 20
-# Create a table visualization showing error and NaN indices
-display_steps = min(TABLE_DISPLAY_STEPS, num_time_steps)  # Limit to TABLE_DISPLAY_STEPS or less
-# Calculate figure size to maintain square cells
-# Adjust the figure size based on the ratio of rows to columns
+##
+##
+## -------------------- Plot Timeline of the Events and Detection --------------------
+##
+##
+TABLE_DISPLAY_STEPS = 450
+display_steps = min(TABLE_DISPLAY_STEPS, num_time_steps)  
 cell_aspect_ratio = NUM_SHARES / display_steps
 if cell_aspect_ratio > 1:
-    # More rows than columns, make figure wider
     fig_width = 10
     fig_height = 10 / cell_aspect_ratio
 else:
-    # More columns than rows, make figure taller
     fig_height = 10
     fig_width = 10 * cell_aspect_ratio
-# Ensure minimum dimensions
 fig_width = max(fig_width, 6)
 fig_height = max(fig_height, 6)
 plt.figure(figsize=(fig_width, fig_height))
-# Create a matrix of all green cells initially
 cell_colors = np.full((NUM_SHARES, display_steps), 'green')
-# Mark cells with errors as red and cells with NaN as black
 for t in range(display_steps):
     if rscode_error_index[t] >= 0 and rscode_error_index[t] < NUM_SHARES:
         cell_colors[int(rscode_error_index[t]), t] = 'red'
     if rscode_nan_index[t] >= 0 and rscode_nan_index[t] < NUM_SHARES:
         cell_colors[int(rscode_nan_index[t]), t] = 'black'
-# Create a table with colored cells
 table = plt.table(
     cellColours=cell_colors,
     cellLoc='center',
@@ -372,15 +470,11 @@ table = plt.table(
     rowLabels=[f'Share {i}' for i in range(NUM_SHARES)],
     colLabels=[f'{i}' for i in range(display_steps)],
 )
-# Adjust table appearance
 table.auto_set_font_size(False)
 table.set_fontsize(9)
-# Scale to maintain square cells
 table.scale(1, 1)
-# Remove axes
 plt.axis('off')
 plt.title(f'Share Status for First {display_steps} Time Steps (Green: OK, Red: Error, Black: NaN)')
-# Add a legend
 from matplotlib.patches import Patch
 legend_elements = [
     Patch(facecolor='green', label='OK'),
@@ -391,3 +485,92 @@ plt.legend(handles=legend_elements, loc='upper center', bbox_to_anchor=(0.5, 0.0
 plt.tight_layout()
 plt.savefig('share_status_table.eps', format='eps', dpi=1200)
 plt.show()
+##
+##
+# -------------------- Plotting Velocities --------------------
+##
+##
+fig, axs = plt.subplots(2, 1, figsize=(12, 12))  # Create 2 subplots in a single column
+# Plot linear velocities
+axs[0].plot(time_vector, linear_velocities_rscode, 'b-', label='Linear Velocity (Reed-Solomon)')
+axs[0].plot(time_vector, linear_velocities_shamir, 'g-', label='Linear Velocity (Shamir)')
+axs[0].set_xlabel('Time [s]')
+axs[0].set_ylabel('Linear Velocity [m/s]')
+axs[0].set_title('Linear Velocity Comparison')
+axs[0].legend(loc='upper right')
+axs[0].grid(True)
+# Plot angular velocities
+axs[1].plot(time_vector, angular_velocities_rscode, 'b--', label='Angular Velocity (Reed-Solomon)')
+axs[1].plot(time_vector, angular_velocities_shamir, 'g--', label='Angular Velocity (Shamir)')
+axs[1].set_xlabel('Time [s]')
+axs[1].set_ylabel('Angular Velocity [rad/s]')
+axs[1].set_title('Angular Velocity Comparison')
+axs[1].legend(loc='upper right')
+axs[1].grid(True)
+plt.tight_layout()  # Adjust layout to prevent overlap
+plt.savefig('velocity_comparison.eps', format='eps', bbox_inches='tight')
+plt.show()
+##
+##
+# -------------------- Plotting Wheel Speeds --------------------
+##
+##
+fig, axs = plt.subplots(2, 1, figsize=(12, 12))  # Create 2 subplots in a single column
+# Plot right wheel speeds
+axs[0].plot(time_vector, right_wheel_speeds_rscode, 'b-', label='Right Wheel Speed (Reed-Solomon)')
+axs[0].plot(time_vector, right_wheel_speeds_shamir, 'g-', label='Right Wheel Speed (Shamir)')
+axs[0].set_xlabel('Time [s]')
+axs[0].set_ylabel('Right Wheel Speed [rad/s]')
+axs[0].set_title('Right Wheel Speed Comparison')
+axs[0].legend(loc='upper right')
+axs[0].grid(True)
+# Plot left wheel speeds
+axs[1].plot(time_vector, left_wheel_speeds_rscode, 'b-', label='Left Wheel Speed (Reed-Solomon)')
+axs[1].plot(time_vector, left_wheel_speeds_shamir, 'g-', label='Left Wheel Speed (Shamir)')
+axs[1].set_xlabel('Time [s]')
+axs[1].set_ylabel('Left Wheel Speed [rad/s]')
+axs[1].set_title('Left Wheel Speed Comparison')
+axs[1].legend(loc='upper right')
+axs[1].grid(True)
+plt.tight_layout()  # Adjust layout to prevent overlap
+plt.savefig('wheel_speed_comparison.eps', format='eps', bbox_inches='tight')
+plt.show()
+##
+##
+## -------------------- Store Data --------------------
+##
+##
+right_wheel_speeds_rscode = np.array(right_wheel_speeds_rscode)
+left_wheel_speeds_rscode = np.array(left_wheel_speeds_rscode)
+right_wheel_speeds_shamir = np.array(right_wheel_speeds_shamir)
+left_wheel_speeds_shamir = np.array(left_wheel_speeds_shamir)
+data_to_save = {
+    'robot_trajectory_x_rscode': robot_trajectory_x,
+    'robot_trajectory_y_rscode': robot_trajectory_y,
+    'robot_trajectory_theta_rscode': robot_trajectory_theta,
+    'robot_trajectory_x_shamir': robot_trajectory_x_shamir,
+    'robot_trajectory_y_shamir': robot_trajectory_y_shamir,
+    'robot_trajectory_theta_shamir': robot_trajectory_theta_shamir,
+    'position_error_x': position_error_x,
+    'position_error_y': position_error_y,
+    'absolute_position_error': absolute_position_error,
+    'position_error_x_shamir': position_error_x_shamir,
+    'position_error_y_shamir': position_error_y_shamir,
+    'absolute_position_error_shamir': absolute_position_error_shamir,
+    'control_input_x_rscode': control_input_x_rscode,
+    'control_input_y_rscode': control_input_y_rscode,
+    'control_input_x_shamir': control_input_x_shamir,
+    'control_input_y_shamir': control_input_y_shamir,
+    'linear_velocities_rscode': linear_velocities_rscode,
+    'angular_velocities_rscode': angular_velocities_rscode,
+    'linear_velocities_shamir': linear_velocities_shamir,
+    'angular_velocities_shamir': angular_velocities_shamir,
+    'right_wheel_speeds_rscode': right_wheel_speeds_rscode,
+    'left_wheel_speeds_rscode': left_wheel_speeds_rscode,
+    'right_wheel_speeds_shamir': right_wheel_speeds_shamir,
+    'left_wheel_speeds_shamir': left_wheel_speeds_shamir,
+    'reference_x': reference_x, 
+    'reference_y': reference_y,  
+    'reference_theta': reference_theta 
+}
+scipy.io.savemat('robot_simulation_data.mat', data_to_save)

@@ -1,3 +1,4 @@
 __pycache__
 *.eps
 .DS_Store
+*.mat

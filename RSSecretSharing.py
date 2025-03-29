@@ -167,10 +167,15 @@ class RSSecretSharing:
             raise Exception("Too many errors, cannot reconstruct")
         secret = self.poly_eval(polynomial, 0)
         error_indices = [i for i, v in enumerate(self.poly_eval(error_locator, p) for p in self.POINTS) if v == 0]
-        print (f"Reconstructed Secret: {secret}")
-        print (f"Error Indices: {error_indices[0]}")
-        print (f"NaN Indices: {nan_indices[0]}")
-        return secret, error_indices[0], nan_indices[0]
+        
+        # Handle potential IndexError
+        error_index = error_indices[0] if error_indices else None
+        nan_index = nan_indices[0] if nan_indices else None
+        
+        # print(f"Reconstructed Secret: {secret}")
+        # print(f"Error Indices: {error_index}")
+        # print(f"NaN Indices: {nan_index}")
+        return secret, error_index, nan_index
 
     def shares_noissy_channel(self, shares, seed=None): 
         if isinstance(shares, np.ndarray):
@@ -236,6 +241,61 @@ class RSSecretSharing:
         share_matrix_noisy = self.shares_noissy_channel(share_matrix, self.RAN_SEED)
         return share_matrix_noisy  # Return the noisy shares
     
+    def simulate_missing_data(self, shares, columns_to_replace_with_nan):
+        if isinstance(shares, np.ndarray):
+            is_array = True
+            if shares.ndim == 1:
+                shares = shares.reshape(1, -1)
+            rows, cols = shares.shape
+        elif isinstance(shares, list):
+            is_array = False
+            if all(isinstance(elem, list) for elem in shares):
+                rows = len(shares)
+                cols = len(shares[0])
+            else:
+                shares = [shares]
+                rows = 1
+                cols = len(shares[0])
+        else:
+            raise TypeError("Unsupported data type for shares")
+        for col in columns_to_replace_with_nan:
+            if col < 0 or col >= cols:
+                raise ValueError(f"Column index {col} is out of bounds.")
+        for col in columns_to_replace_with_nan:
+            if is_array:
+                shares[:, col] = np.array([float('nan')] * rows, dtype=object)
+            else:
+                for row in range(rows):
+                    shares[row][col] = float('nan')
+        return shares
+
+    def simulate_manipulated_data(self, shares, columns_to_replace_with_random):
+        if isinstance(shares, np.ndarray):
+            is_array = True
+            if shares.ndim == 1:
+                shares = shares.reshape(1, -1)
+            rows, cols = shares.shape
+        elif isinstance(shares, list):
+            is_array = False
+            if all(isinstance(elem, list) for elem in shares):
+                rows = len(shares)
+                cols = len(shares[0])
+            else:
+                shares = [shares]
+                rows = 1
+                cols = len(shares[0])
+        else:
+            raise TypeError("Unsupported data type for shares")
+        for col in columns_to_replace_with_random:
+            if col < 0 or col >= cols:
+                raise ValueError(f"Column index {col} is out of bounds.")
+        for col in columns_to_replace_with_random:
+            if is_array:
+                shares[:, col] = np.array([random.randrange(self.PRIME) for _ in range(rows)], dtype=object)
+            else:
+                for row in range(rows):
+                    shares[row][col] = random.randrange(self.PRIME)
+        return shares
 
 # # Example 128-bit prime number
 # PRIME = 340282366920938463463374607431768211507  # This is 2^128 - 159
