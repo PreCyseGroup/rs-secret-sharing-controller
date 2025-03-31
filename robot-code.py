@@ -19,26 +19,6 @@ NON_RESPONSIVE_CLOUD= [2]
 MALICIOUS_CLOUD = [0]
 rscode = RSSecretSharing(PRIME, 1, NUM_SHARES, T_POLY_DEGREE, MAX_MISSING, MAX_MANIPULATED, SEED)
 ##
-def saturate_speeds(w, v, wrmax, wlmax, r, d):
-        if w > 2 * wrmax * r / d:
-            w = 2 * wrmax * r / d
-
-        if w < -(2 * wrmax * r / d):
-            w = -(2 * wrmax * r / d)
-
-        if v > r * wrmax - d / 2 * w:
-            v = r * wrmax - d / 2 * w
-
-        if v > r * wlmax + d / 2 * w:
-            v = r * wlmax + d / 2 * w
-
-        if v < -(r * wrmax - d / 2 * w):
-            v = -(r * wrmax - d / 2 * w)
-
-        if v < -(r * wlmax + d / 2 * w):
-            v = -(r * wlmax + d / 2 * w)
-        return w, v
-##
 def custom_quantize(x):
     if x < -QU_BASE**QU_GAMMA or x > QU_BASE**QU_GAMMA - QU_BASE**(-QU_DELTA):
         raise ValueError("Input out of range")
@@ -237,26 +217,27 @@ for k in range(num_time_steps):
         [-np.sin(current_theta) / lookahead_distance, np.cos(current_theta) / lookahead_distance]
     ])
     control_vector_rscode = np.array([u_x_rscode, u_y_rscode])
-    velocities_rscode = transformation_inverse @ control_vector_rscode
+    wheel_velocities_rscode = np.linalg.inv(conversion_matrix_robot) @ transformation_inverse @ control_vector_rscode
+    omega_r_rscode = wheel_velocities_rscode[0]
+    omega_l_rscode = wheel_velocities_rscode[1]
+    omega_r_rscode = np.clip(omega_r_rscode, -max_wheel_speed, max_wheel_speed)
+    omega_l_rscode = np.clip(omega_l_rscode, -max_wheel_speed, max_wheel_speed)
+    left_wheel_speeds_rscode.append(omega_l_rscode)
+    right_wheel_speeds_rscode.append(omega_r_rscode)
+    velocities_rscode = conversion_matrix_robot @ np.array([[omega_r_rscode], [omega_l_rscode]])
     linear_velocity_rscode = velocities_rscode[0]
     angular_velocity_rscode = velocities_rscode[1]
-    # Saturate velocities to robot's physical limits for RS Code
-    angular_velocity_rscode, linear_velocity_rscode = saturate_speeds(angular_velocity_rscode, linear_velocity_rscode, max_wheel_speed, max_wheel_speed, wheel_radius, wheel_base)
-    # Store the velocities for RS Code
     linear_velocities_rscode.append(linear_velocity_rscode)
     angular_velocities_rscode.append(angular_velocity_rscode)
-    # Calculate wheel speeds for RS Code
-    wheel_speeds_rscode = np.linalg.inv(conversion_matrix_robot) @ np.array([[linear_velocity_rscode], [angular_velocity_rscode]])
-    left_wheel_speed_rscode = wheel_speeds_rscode[0, 0]
-    right_wheel_speed_rscode = wheel_speeds_rscode[1, 0]
-    # Store the wheel speeds for RS Code
-    left_wheel_speeds_rscode.append(left_wheel_speed_rscode)
-    right_wheel_speeds_rscode.append(right_wheel_speed_rscode)
-    # Update robot position for RS Code
     current_x += sampling_time * linear_velocity_rscode * np.cos(current_theta)
+    print(current_x, current_y, current_theta)
     current_y += sampling_time * linear_velocity_rscode * np.sin(current_theta)
     current_theta += sampling_time * angular_velocity_rscode
     current_theta = (current_theta + np.pi) % (2 * np.pi) - np.pi
+    current_x = current_x[0]
+    current_y = current_y[0]
+    current_theta = current_theta[0]
+    print(current_x, current_y, current_theta)
 # -------------------- Shamir Simulation Loop --------------------
 current_x_shamir = 0.0
 current_y_shamir = 0.0
@@ -380,25 +361,25 @@ for k in range(num_time_steps):
         [-np.sin(current_theta_shamir) / lookahead_distance, np.cos(current_theta_shamir) / lookahead_distance]
     ])
     control_vector_shamir = np.array([u_x_shamir, u_y_shamir])
-    velocities_shamir = transformation_inverse_shamir @ control_vector_shamir
+    wheel_velocities_shamir = np.linalg.inv(conversion_matrix_robot) @ transformation_inverse_shamir @ control_vector_shamir
+    omega_r_shamir = wheel_velocities_shamir[0]
+    omega_l_shamir = wheel_velocities_shamir[1]
+    omega_r_shamir = np.clip(omega_r_shamir, -max_wheel_speed, max_wheel_speed)
+    omega_l_shamir = np.clip(omega_l_shamir, -max_wheel_speed, max_wheel_speed)
+    left_wheel_speeds_shamir.append(omega_l_shamir)
+    right_wheel_speeds_shamir.append(omega_r_shamir)
+    velocities_shamir = conversion_matrix_robot @ np.array([[omega_r_shamir], [omega_l_shamir]])
     linear_velocity_shamir = velocities_shamir[0]
     angular_velocity_shamir = velocities_shamir[1]
-    angular_velocity_shamir, linear_velocity_shamir = saturate_speeds(angular_velocity_shamir, linear_velocity_shamir, max_wheel_speed, max_wheel_speed, wheel_radius, wheel_base)
-    # Store the velocities for Shamir
     linear_velocities_shamir.append(linear_velocity_shamir)
     angular_velocities_shamir.append(angular_velocity_shamir)
-    # Calculate wheel speeds for Shamir
-    wheel_speeds_shamir = np.linalg.inv(conversion_matrix_robot) @ np.array([[linear_velocity_shamir], [angular_velocity_shamir]])
-    left_wheel_speed_shamir = wheel_speeds_shamir[0, 0]
-    right_wheel_speed_shamir = wheel_speeds_shamir[1, 0]
-    # Store the wheel speeds for Shamir
-    left_wheel_speeds_shamir.append(left_wheel_speed_shamir)
-    right_wheel_speeds_shamir.append(right_wheel_speed_shamir)
-    # Update robot position for Shamir
     current_x_shamir += sampling_time * linear_velocity_shamir * np.cos(current_theta_shamir)
     current_y_shamir += sampling_time * linear_velocity_shamir * np.sin(current_theta_shamir)
     current_theta_shamir += sampling_time * angular_velocity_shamir
     current_theta_shamir = (current_theta_shamir + np.pi) % (2 * np.pi) - np.pi
+    current_x_shamir = current_x_shamir[0]
+    current_y_shamir = current_y_shamir[0]
+    current_theta_shamir = current_theta_shamir[0]
 ##
 ##
 # Convert lists to numpy arrays
