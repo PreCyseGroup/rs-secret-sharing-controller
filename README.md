@@ -1,7 +1,7 @@
 # Robot Trajectory Tracking with Secret Sharing
 
 ## Overview
-This project implements a robot trajectory tracking system using two different techniques: Reed-Solomon (RS) coding and Shamir's Secret Sharing. The system simulates a robot's movement along a reference trajectory while handling missing and incorrect shares in control inputs computed by a set of N clouds.
+This project implements a robot trajectory tracking system using two different techniques: Reed-Solomon (RS) coding and Shamir's Secret Sharing. The system simulates a robot tracking a reference trajectory and where the controller is executed on a set of N clouds. The proposed schemes try to handle missing and incorrect shares in control inputs computed by the clouds.
 
 ## Features
 - **Custom Quantization**: Implements a quantization method to handle floating-point values.
