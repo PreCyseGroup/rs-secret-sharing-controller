@@ -1,7 +1,7 @@
 # Robot Trajectory Tracking with Secret Sharing
 
 ## Overview
-This project implements a robot trajectory tracking system using two different error correction techniques: Reed-Solomon (RS) coding and Shamir's Secret Sharing. The system simulates a robot's movement along a reference trajectory while handling errors and uncertainties in control inputs.
+This project implements a robot trajectory tracking system using two different techniques: Reed-Solomon (RS) coding and Shamir's Secret Sharing. The system simulates a robot's movement along a reference trajectory while handling errors and uncertainties in control inputs.
 
 ## Features
 - **Custom Quantization**: Implements a quantization method to handle floating-point values.
