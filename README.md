@@ -13,7 +13,7 @@ This project implements a robot trajectory tracking system using two different e
 - Python 3.x
 - NumPy
 - Matplotlib
-- RSSecretSharing library 
+- RSSecretSharing Class (Developed by using https://github.com/mortendahl/privateml.)
 
 ## Installation
 1. Clone the repository:
@@ -49,6 +49,3 @@ The following files will be generated in the working directory:
 
 ## Contributing
 Contributions are welcome! Please open an issue or submit a pull request for any improvements or bug fixes.
-
-## Acknowledgments
-- Thanks to the authors of https://github.com/mortendahl/privateml. 

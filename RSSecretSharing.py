@@ -1,3 +1,4 @@
+## This class is developed by using this repository https://github.com/mortendahl/privateml
 from copy import copy, deepcopy
 import random
 import numpy as np
